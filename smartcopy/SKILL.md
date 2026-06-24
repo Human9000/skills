@@ -20,12 +20,13 @@ python scripts/smartcopy.py <SRC目录> <DST目录> [选项]
 | `--force` | 仅依大小判断，跳过 MD5（更快） |
 | `--threads N` | MD5 并行线程数（0=单线程，SSD 建议 2-4） |
 | `--no-longpath` | 禁用长路径前缀 |
+| `--soft-delete` | 软删除模式：DST 独有文件重命名为 `_deleted_at_<时间戳>` 后缀 |
 
 ## 三种 Case
 
 | SRC | DST | 行为 |
 |-----|-----|------|
-| ✗ | ✓ | Case 1: 保留 DST，不操作 |
+| ✗ | ✓ | Case 1: 保留 DST（默认）或软删除标记（`--soft-delete`） |
 | ✓ | ✓ | Case 2: 大小/MD5 不同 → 冲突，用户决策 |
 | ✓ | ✗ | Case 3: 复制 SRC→DST，自动建父目录 |
 | ✓ | ✓ | MD5 相同 → 跳过 |
@@ -48,8 +49,8 @@ python scripts/smartcopy.py <SRC目录> <DST目录> [选项]
 # 交互模式
 python scripts/smartcopy.py E:\work D:\backup --log log.csv
 
-# 自动覆盖
-python scripts/smartcopy.py E:\work D:\backup --yes --log log.csv
+# 自动覆盖 + 软删除
+python scripts/smartcopy.py E:\work D:\backup --yes --soft-delete --log log.csv
 
 # SSD 加速
 python scripts/smartcopy.py E:\work D:\backup --yes --threads 4
@@ -57,6 +58,6 @@ python scripts/smartcopy.py E:\work D:\backup --yes --threads 4
 
 ## 约束
 
-- 不删除 DST 文件，跳过符号链接
+- 不物理删除 DST 文件（支持 `--soft-delete` 软删除标记），跳过符号链接
 - 流式读取 4MB 缓冲，大文件安全
 - 支持 >260 字符长路径，复制保留 mtime

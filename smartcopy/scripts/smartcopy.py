@@ -11,11 +11,14 @@ import hashlib
 import argparse
 import shutil
 import csv
+import re
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BUFFER_SIZE = 4 * 1024 * 1024  # 4MB
+SOFT_DELETE_RE = re.compile(r"_deleted_at_\d{8}_\d{6}$")
+SOFT_DELETE_TS_RE = re.compile(r"_deleted_at_(\d{8}_\d{6})$")
 
 
 def to_long_path(path):
@@ -38,6 +41,31 @@ def format_size(size_bytes):
         return f"{size_bytes / (1024 * 1024):.1f}MB"
     else:
         return f"{size_bytes / (1024 * 1024 * 1024):.2f}GB"
+
+
+def is_soft_deleted(rel_path):
+    """判断文件路径是否已携带软删除标记（_deleted_at_时间戳）。"""
+    return bool(SOFT_DELETE_RE.search(rel_path))
+
+
+def extract_soft_delete_ts(rel_path):
+    """从软删除文件路径中提取原始删除时间戳；若未匹配则返回 None。"""
+    m = SOFT_DELETE_TS_RE.search(rel_path)
+    return m.group(1) if m else None
+
+
+def soft_delete_rename(full_path):
+    """
+    将文件重命名为 原路径_deleted_at_<当前时间戳>。
+    若文件已存在软删除后缀则跳过，返回 None。
+    返回新路径，失败抛 OSError。
+    """
+    if SOFT_DELETE_RE.search(full_path):
+        return None
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    new_path = full_path + f"_deleted_at_{ts}"
+    os.rename(full_path, new_path)
+    return new_path
 
 
 def walk_files(directory):
@@ -283,8 +311,9 @@ def main():
 示例:
   python smartcopy.py E:\\work D:\\backup
   python smartcopy.py E:\\work D:\\backup --log copy_log.csv
-  python smartcopy.py E:\\work D:\\backup --yes    (自动全部覆盖，无交互)
-  python smartcopy.py E:\\work D:\\backup --force   (跳过校验，直接复制所有差异)
+  python smartcopy.py E:\\work D:\\backup --yes           (自动全部覆盖，无交互)
+  python smartcopy.py E:\\work D:\\backup --force          (跳过校验，直接复制所有差异)
+  python smartcopy.py E:\\work D:\\backup --soft-delete    (DST 独有文件重命名标记，不直接保留)
         """,
     )
     parser.add_argument("src", help="源目录路径")
@@ -304,6 +333,10 @@ def main():
         "--no-longpath", action="store_true",
         help="禁用 \\\\?\\ 长路径前缀 (非 Windows 平台自动禁用)",
     )
+    parser.add_argument(
+        "--soft-delete", action="store_true",
+        help="软删除模式：Case 1 文件（DST 独有）重命名为 _deleted_at_<时间戳> 后缀，而非直接保留",
+    )
     args = parser.parse_args()
 
     src_dir = os.path.abspath(args.src)
@@ -322,6 +355,8 @@ def main():
     print(f"  目标目录: {dst_dir}")
     if args.force:
         print(f"  模式: 强制模式 (仅大小判断，跳过 MD5)")
+    if args.soft_delete:
+        print(f"  模式: 软删除模式 (Case 1 文件将重命名标记而非保留)")
     print()
 
     # [1/3] 扫描源目录
@@ -341,13 +376,23 @@ def main():
     for e in dst_errors:
         print(f"      ⚠ 跳过: {e['path']} ({e['error']})")
 
+    # 从 dst_map 中剥离已软删除的文件，使其不参与比对
+    already_soft_deleted = {}
+    for rel_path in list(dst_map.keys()):
+        if is_soft_deleted(rel_path):
+            already_soft_deleted[rel_path] = dst_map.pop(rel_path)
+    already_soft_deleted_count = len(already_soft_deleted)
+
+    if already_soft_deleted_count > 0:
+        print(f"      ℹ 已软删除文件 (跳过比对): {already_soft_deleted_count} 个")
+
     # 分类（O(n) 集合运算，无双重循环）
     only_in_src = set(src_map.keys()) - set(dst_map.keys())   # Case 3: 仅 SRC 有 → 复制
-    only_in_dst = set(dst_map.keys()) - set(src_map.keys())   # Case 1: 仅 DST 有 → 忽略
+    only_in_dst = set(dst_map.keys()) - set(src_map.keys())   # Case 1: 仅 DST 有
     common = set(src_map.keys()) & set(dst_map.keys())         # 待比对
 
     print(f"\n  仅 SRC 有 (Case 3, 直接复制): {len(only_in_src)} 个")
-    print(f"  仅 DST 有 (Case 1, 保留):     {len(only_in_dst)} 个")
+    print(f"  仅 DST 有 (Case 1):            {len(only_in_dst)} 个")
     print(f"  双方共存 (待比对):            {len(common)} 个")
 
     # [3/3] 比对
@@ -385,10 +430,11 @@ def main():
 
     t3 = time.time()
 
+    case1_label = "软删除" if args.soft_delete else "保留"
     print(f"\n      完成! ({t3 - t2:.2f}s)")
     print(f"\n  结果汇总:")
     print(f"    - Case 3 (仅 SRC 有, 将复制): {len(only_in_src)} 个")
-    print(f"    - Case 1 (仅 DST 有, 保留):   {len(only_in_dst)} 个")
+    print(f"    - Case 1 (仅 DST 有, {case1_label}):   {len(only_in_dst)} 个")
     print(f"    - MD5 一致 (跳过):            {skipped} 个")
     print(f"    - 冲突 (Case 2):              {len(conflicts)} 个")
 
@@ -404,6 +450,7 @@ def main():
     # 执行操作
     log_entries = []
     copy_count = 0
+    soft_delete_count = 0
     error_count = 0
 
     # Case 3: 复制仅 SRC 有的文件
@@ -463,14 +510,45 @@ def main():
                 "detail": f"Case 2 ({c['reason']}): 用户选择保留 DST",
             })
 
-    # Case 1: 仅 DST 有的文件 → 记录但不操作
-    for rel_path in sorted(only_in_dst):
-        log_entries.append({
-            "action": "keep",
-            "path": rel_path,
-            "dst_size": dst_map.get(rel_path, 0),
-            "detail": "Case 1: 仅 DST 有，保留不操作",
-        })
+    # Case 1: 仅 DST 有的文件
+    if args.soft_delete:
+        for rel_path in sorted(only_in_dst):
+            dst_full = os.path.join(dst_dir, rel_path)
+            try:
+                new_path = soft_delete_rename(dst_full)
+                if new_path:
+                    soft_delete_count += 1
+                    new_rel = os.path.relpath(new_path, dst_dir)
+                    log_entries.append({
+                        "action": "soft_delete",
+                        "path": rel_path,
+                        "dst_size": dst_map.get(rel_path, 0),
+                        "detail": f"Case 1: 已软删除 → {new_rel}",
+                    })
+                else:
+                    # 文件名已带 _deleted_at_ 后缀（极端边界情况），保留不动
+                    log_entries.append({
+                        "action": "keep",
+                        "path": rel_path,
+                        "dst_size": dst_map.get(rel_path, 0),
+                        "detail": "Case 1: 已含软删除标记，保留不动",
+                    })
+            except (PermissionError, OSError) as e:
+                error_count += 1
+                log_entries.append({
+                    "action": "error",
+                    "path": rel_path,
+                    "detail": f"Case 1 软删除失败: {e}",
+                })
+                print(f"  ✗ 软删除失败: {rel_path} ({e})")
+    else:
+        for rel_path in sorted(only_in_dst):
+            log_entries.append({
+                "action": "keep",
+                "path": rel_path,
+                "dst_size": dst_map.get(rel_path, 0),
+                "detail": "Case 1: 仅 DST 有，保留不操作",
+            })
 
     t_end = time.time()
 
@@ -478,7 +556,12 @@ def main():
     print(f"\n{'='*50}")
     print(f"操作完成!")
     print(f"  复制/覆盖: {copy_count} 个文件")
-    print(f"  跳过:     {skipped + len(only_in_dst)} 个文件 (含 {skipped} 个 MD5 一致)")
+    if args.soft_delete:
+        print(f"  软删除:   {soft_delete_count} 个文件")
+        skipped_total = skipped + already_soft_deleted_count
+    else:
+        skipped_total = skipped + len(only_in_dst)
+    print(f"  跳过:     {skipped_total} 个文件 (含 {skipped} 个 MD5 一致)")
     print(f"  错误:     {error_count} 个")
     if not args.yes:
         overridden = sum(1 for d in decisions if d["action"] == "overwrite")
