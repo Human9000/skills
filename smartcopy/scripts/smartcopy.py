@@ -457,6 +457,7 @@ def main():
   python smartcopy.py E:\\work D:\\backup --force          (跳过校验，直接复制所有差异)
   python smartcopy.py E:\\work D:\\backup --soft-delete    (DST 独有文件重命名标记，不直接保留)
   python smartcopy.py D:\\backup --undo-soft-delete          (还原目标目录中被软删除的文件)
+  python smartcopy.py D:\\backup --undo-soft-delete --restore-to E:\\work  (还原并复制回原始源目录)
   python smartcopy.py E:\\work D:\\backup --reverse           (反向: 从 DST 同步到 SRC)
         """,
     )
@@ -498,6 +499,10 @@ def main():
         "--soft-delete", action="store_true",
         help="软删除模式：Case 1 文件（DST 独有）重命名为 _deleted_at_<时间戳> 后缀，而非直接保留",
     )
+    parser.add_argument(
+        "--restore-to", default=None,
+        help="配合 --undo-soft-delete，将还原的文件复制到指定目录（如原始 SRC 目录）",
+    )
     args = parser.parse_args()
 
     # -- 处理 --undo-soft-delete 模式（独立操作，不走同步流程） --
@@ -534,6 +539,17 @@ def main():
             try:
                 result_path = undo_soft_delete(target)
                 print(f"已还原: {result_path}")
+                if args.restore_to:
+                    restore_dst = os.path.join(os.path.abspath(args.restore_to),
+                                              os.path.basename(original))
+                    if os.path.isdir(original):
+                        if os.path.exists(restore_dst):
+                            shutil.rmtree(restore_dst)
+                        shutil.copytree(original, restore_dst)
+                    else:
+                        os.makedirs(os.path.dirname(restore_dst), exist_ok=True)
+                        shutil.copy2(original, restore_dst)
+                    print(f"  已复制到: {restore_dst}")
             except FileExistsError:
                 print(f"错误: 目标已存在: {original}")
                 sys.exit(1)
@@ -566,6 +582,30 @@ def main():
         print(f"\n还原完成: {result['restored']} 个, 跳过: {result['skipped']} 个, 错误: {result['errors']} 个")
         if result["errors"] > 0:
             sys.exit(2)
+        if args.restore_to:
+            restore_to_dir = os.path.abspath(args.restore_to)
+            print(f"\n复制还原文件到: {restore_to_dir}")
+            copied = 0
+            for c in candidates:
+                original_rel = c["original_rel"]
+                src_path = os.path.join(os.path.abspath(args.src), original_rel)
+                dst_path = os.path.join(restore_to_dir, original_rel)
+                if not os.path.exists(src_path):
+                    print(f"  跳过(不存在): {original_rel}")
+                    continue
+                try:
+                    if os.path.isdir(src_path):
+                        if os.path.exists(dst_path):
+                            shutil.rmtree(dst_path)
+                        shutil.copytree(src_path, dst_path)
+                    else:
+                        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                        shutil.copy2(src_path, dst_path)
+                    copied += 1
+                    print(f"  已复制: {original_rel}")
+                except (PermissionError, OSError) as e:
+                    print(f"  复制失败: {original_rel} ({e})")
+            print(f"\n复制完成: {copied} 个")
         sys.exit(0)
 
     src_dir = os.path.abspath(args.src)
