@@ -1,34 +1,18 @@
 # Human9000 Skills
 
-Claude Code 技能（Skills）集合。每个 skill 是一个独立的功能模块，可通过 `npx skills` 安装使用。
+Claude Code 技能（Skills）集合。每个 skill 是一个独立的功能模块。
 
 ---
 
 ## 技能列表
 
-### nano-flow · 极简项目协同
-
-> 给定当前团队配置，最小动作集合是什么？
-
-一键初始化完整的项目文件管理体系。投放问卷 → 验证完整性 → 并行生成所有文件（项目状态、个人周报、会议材料、接口约定、团队分析、管理方法）。
-
-**适用：** 新项目启动、团队协同体系搭建、项目管理系统重建
-
-**安装：**
-
-```bash
-npx skills add Human9000/skills --skill nano-flow -g
-```
-
-**使用：**
-
-```
-/nano-flow
-```
+| 技能 | 说明 | 适用场景 |
+|------|------|---------|
+| `nano-flow` | 极简项目协同。投放问卷→验证完整性→并行生成项目文件管理体系（项目状态、个人周报、会议材料、接口约定、团队分析、管理方法） | 新项目启动、团队协同体系搭建、项目管理系统重建 |
 
 ---
 
-## 安装单个 skill
+## 安装
 
 ```bash
 npx skills add Human9000/skills --skill <skill-name> -g
@@ -38,9 +22,15 @@ npx skills add Human9000/skills --skill <skill-name> -g
 
 ---
 
-## 技能结构规范
+## 使用
 
-本仓库中的 skill 遵循 [agentskills.io](https://agentskills.io) 规范：
+在 Claude Code 中输入 `/<skill-name>` 即可触发对应技能。
+
+---
+
+## 贡献
+
+skill 遵循 [agentskills.io](https://agentskills.io) 规范：
 
 ```
 skill-name/
@@ -48,4 +38,4 @@ skill-name/
 └── ...               ← 模板、工具、参考文件
 ```
 
-欢迎 PR 贡献新的 skill。
+欢迎 PR。
