@@ -9,6 +9,36 @@ description: Use when the user wants to initialize a new project, set up project
 
 ---
 
+## 项目目录结构
+
+```
+{project}/
+├── CLAUDE.md                        # AI 上下文文件
+├── nano-flow-init.md                # 初始化问卷（永久保留）
+├── 00-proj/                         # 项目级文档
+│   └── YYMMDD.md                    #   项目状态快照（方向/里程碑/红线/团队/管理方法/Mermaid 图）
+├── 01-artifacts/                    # 产物存放
+│   └── 问题归档.md                   #   已解决问题的归档
+├── 02-sync/                         # 角色间接口对接记录
+│   ├── README.md                    #   对接记录使用说明
+│   └── {角色A}↔{角色B}.md           #   具体接口对接文件
+├── 03-meeting/                      # 会议材料
+│   └── YYMMDD.md                    #   周会记录（会前汇总，会中更新，会后留档）
+├── 04-问题/                         # 项目问题升级追踪
+│   └── 问题列表.md                   #   @人 2 天无排查策略 → 进列表，周会决议
+├── 10-item/                         # 个人周报
+│   └── {name}/YYMMDD.md             #   每人每周一份
+└── 99-current/                      # 本项目模板（只描述结构，不填实际数据）
+    ├── README.md                    #   目录结构总览 + 每周节奏 + 各文件 WHEN/WHO/HOW
+    ├── 项目状态模板.md               #   项目状态文档模板（含各节说明 + 占位符）
+    ├── 个人周报模板.md               #   个人周报空白模板
+    ├── 周会材料模板.md               #   周会议程空白模板
+    ├── 接口约定模板.md               #   接口约定空白模板
+    └── 问题归档模板.md               #   问题归档空白模板
+```
+
+---
+
 ## 初始化流程
 
 ### 第一步：投放问卷
@@ -36,19 +66,49 @@ description: Use when the user wants to initialize a new project, set up project
 
 ### 第三步：生成
 
-验证通过（或用户确认跳过）后，**同时启动以下 agent**：
+验证通过（或用户确认跳过）后，**同时启动以下 6 个 agent**：
 
 | Agent | 做什么 | 读哪些文件 |
 |-------|--------|----------|
-| Agent 1 | 生成 `CLAUDE.md` | `templates/CLAUDE模板.md` |
-| Agent 2 | 生成 `99-current/`（README + 4 模板） | `templates/项目状态.md` `templates/个人周报.md` `templates/周会材料.md` `templates/接口约定.md` |
-| Agent 3 | 生成 `00-proj/YYMMDD.md`（填方向/里程碑/红线/团队配置/管理方法/Mermaid 图） | `templates/项目状态.md` `methodology.md` |
-| Agent 4 | 生成 `10-item/{name}/` 每人初始周报 + `03-meeting/` + `01-artifacts/问题归档.md` | `templates/个人周报.md` `templates/周会材料.md` `templates/问题归档.md` |
-| Agent 5 | 生成 `99-tool/`（可选） | 复制 handbook + 阶段模板 |
+| Agent 1 | 生成 `CLAUDE.md` — 项目 AI 上下文文件，含团队、技术栈、约束、里程碑、每周节奏 | `templates/CLAUDE模板.md` |
+| Agent 2 | 生成 `99-current/` — 6 个管理模板。**关键约束：这些模板只描述各文件的字段含义、填写时机（WHEN）、填写人（WHO）、怎么用（HOW），不填入任何项目实际数据。** 模板中与项目相关的结构元素（如团队成员行数、周会时间）从 init 文件推导后填入，但所有业务内容以占位符 `{ }` 标出。例如：项目状态模板中"方向"节写"从 init 一、项目身份提取，填在此处"，而不是填入实际的项目目标文字 | `templates/项目状态.md` `templates/个人周报.md` `templates/周会材料.md` `templates/接口约定.md` `templates/问题归档.md` |
+| Agent 3 | 生成 `00-proj/YYMMDD.md` — 填入实际项目数据：方向/里程碑/红线/团队配置/四变量分析/管理方法/Mermaid 组织架构图。这是项目的"宪法"文件 | `templates/项目状态.md` `methodology.md` |
+| Agent 4 | 生成 `10-item/{name}/` 每人初始周报（本周数据）+ `03-meeting/` 本周周会模板 + `01-artifacts/问题归档.md`（空白初始化） | `templates/个人周报.md` `templates/周会材料.md` `templates/问题归档.md` |
+| Agent 5 | 生成 `02-sync/`（README.md 对接记录说明） | — |
+| Agent 6 | 生成 `04-问题/`（问题列表.md 空白模板） | — |
+
+> **不生成 `99-tool/`。** `99-tool/` 是 skill 安装时自带的通用参考工具箱，不属于项目初始化范围。
 
 ### 第四步：保留问卷
 
 生成的 `nano-flow-init.md` 留在项目根目录，永久保留。下次项目变更时，直接改这个文件，重新触发 skill。
+
+---
+
+## 99-current 规范
+
+`99-current/` 是本项目的**管理模板目录**。它的作用是让新加入的成员或 AI 能快速理解：这个项目有哪些文件、每个文件什么时候写、谁写、怎么写。
+
+### README.md 必须包含
+
+1. **目录结构总览** — 每个目录的用途（一句话）
+2. **每周节奏** — 从周几开始、谁做什么、文件流向
+3. **各文件速查表** — 文件名 / WHEN（什么时候写）/ WHO（谁写）/ HOW（怎么用）
+4. **模板使用说明** — 本目录下每个模板对应哪个实际文件
+
+### 各模板文件规则
+
+- **项目状态模板.md**：对应 `00-proj/YYMMDD.md`。列出各节（方向/里程碑/进度/红线/团队/管理方法/周会），每节标注"从 init 哪段提取"、"谁填"、"什么时候填"、"更新频率"
+- **个人周报模板.md**：对应 `10-item/{name}/YYMMDD.md`。三栏（本周做了什么/下周计划/卡在哪），标注必填项。团队成员列表从 init 提取
+- **周会材料模板.md**：对应 `03-meeting/YYMMDD.md`。议程结构（进度→问题→卡点→方向→遗留），标注 PM 会前/会中/会后的操作
+- **接口约定模板.md**：对应跨角色对接文件。格式说明（约定/踩过的坑/更新日志），标注什么时候建、谁维护
+- **问题归档模板.md**：对应 `01-artifacts/问题归档.md`。表格结构（日期/问题/怎么解决/教训），标注什么时候从问题列表移入
+
+### 禁止事项
+
+- **禁止填入任何项目实际业务数据。** 目标、里程碑、团队成员名、会议时间等一律不填
+- **禁止复制 init 文件内容。** 模板说"填什么"，不是"已经填好了"
+- **禁止把模板当实际文件用。** 模板在 `99-current/`，实际文件在对应目录
 
 ---
 
