@@ -68,6 +68,84 @@ def soft_delete_rename(full_path):
     return new_path
 
 
+def undo_soft_delete(full_path):
+    """
+    还原被软删除的文件：去掉 _deleted_at_<时间戳> 后缀。
+    若文件未携带软删除标记则返回 None。
+    若还原后目标已存在则抛出 FileExistsError。
+    返回还原后的路径。
+    """
+    if not SOFT_DELETE_RE.search(full_path):
+        return None
+    original_path = SOFT_DELETE_RE.sub("", full_path)
+    if not os.path.exists(full_path):
+        raise FileNotFoundError(f"软删除文件不存在: {full_path}")
+    if os.path.exists(original_path):
+        raise FileExistsError(f"目标已存在: {original_path}")
+    os.rename(full_path, original_path)
+    return original_path
+
+
+def scan_undo_candidates(directory):
+    """
+    扫描目录中所有可还原的软删除文件。
+    返回 [{"deleted_rel": ..., "original_rel": ..., "deleted_path": ..., "timestamp": ...}, ...]
+    """
+    candidates = []
+    directory = os.path.abspath(directory)
+    walk_root = to_long_path(directory)
+    for dirpath, dirnames, filenames in os.walk(walk_root, followlinks=False):
+        for fname in filenames:
+            if not SOFT_DELETE_RE.search(fname):
+                continue
+            full_path = os.path.join(dirpath, fname)
+            try:
+                if not os.path.isfile(full_path):
+                    continue
+            except OSError:
+                continue
+            try:
+                rel = os.path.relpath(full_path, walk_root)
+            except (ValueError, OSError):
+                rel = fname
+            original_rel = SOFT_DELETE_RE.sub("", rel)
+            ts = extract_soft_delete_ts(rel) or ""
+            candidates.append({
+                "deleted_rel": rel,
+                "original_rel": original_rel,
+                "deleted_path": full_path,
+                "timestamp": ts,
+            })
+    return candidates
+
+
+def undo_all(directory, force=False):
+    """
+    还原目录中所有软删除文件。
+    force=True 时覆盖已存在的目标。
+    返回 {"restored": N, "skipped": N, "errors": N}
+    """
+    candidates = scan_undo_candidates(directory)
+    restored = 0
+    skipped = 0
+    errors = 0
+    for c in candidates:
+        original_path = os.path.join(os.path.dirname(c["deleted_path"]),
+                                     os.path.basename(c["original_rel"]))
+        try:
+            if os.path.exists(original_path):
+                if force:
+                    os.remove(original_path)
+                else:
+                    skipped += 1
+                    continue
+            os.rename(c["deleted_path"], original_path)
+            restored += 1
+        except OSError:
+            errors += 1
+    return {"restored": restored, "skipped": skipped, "errors": errors}
+
+
 def walk_files(directory):
     """
     递归遍历目录，返回 {相对路径: 文件大小(字节)}。
@@ -314,16 +392,27 @@ def main():
   python smartcopy.py E:\\work D:\\backup --yes           (自动全部覆盖，无交互)
   python smartcopy.py E:\\work D:\\backup --force          (跳过校验，直接复制所有差异)
   python smartcopy.py E:\\work D:\\backup --soft-delete    (DST 独有文件重命名标记，不直接保留)
+  python smartcopy.py D:\\backup --undo-soft-delete          (还原目标目录中被软删除的文件)
+  python smartcopy.py E:\\work D:\\backup --reverse           (反向: 从 DST 同步到 SRC)
         """,
     )
-    parser.add_argument("src", help="源目录路径")
-    parser.add_argument("dst", help="目标目录路径")
+    parser.add_argument("src", help="源目录路径 (--undo-soft-delete 模式下为要还原的目录)")
+    parser.add_argument("dst", nargs="?", default=None,
+                        help="目标目录路径 (--undo-soft-delete 模式下无需指定)")
     parser.add_argument("--log", default=None, help="操作日志输出路径 (CSV)")
     parser.add_argument("--yes", action="store_true", help="无交互模式：有冲突时自动全部覆盖")
     parser.add_argument(
         "--force",
         action="store_true",
         help="强制模式：跳过 MD5 校验，仅依大小判断（大小不同即覆盖，更快但不如 MD5 精准）",
+    )
+    parser.add_argument(
+        "--undo-soft-delete", action="store_true",
+        help="还原模式：扫描目标目录中被软删除的文件（_deleted_at_ 后缀），还原为原始文件",
+    )
+    parser.add_argument(
+        "--reverse", action="store_true",
+        help="反向同步模式：交换 SRC 和 DST 角色，从目标目录同步到源目录",
     )
     parser.add_argument(
         "--threads", type=int, default=0,
@@ -339,10 +428,46 @@ def main():
     )
     args = parser.parse_args()
 
+    # -- 处理 --undo-soft-delete 模式（独立操作，不走同步流程） --
+    if args.undo_soft_delete:
+        if not os.path.isdir(args.src):
+            print(f"错误: 目录不存在: {args.src}")
+            sys.exit(1)
+        print(f"SmartCopy v1.0")
+        print(f"  模式: 还原软删除文件")
+        print(f"  目录: {os.path.abspath(args.src)}")
+        print()
+        candidates = scan_undo_candidates(args.src)
+        if not candidates:
+            print("未发现可还原的软删除文件。")
+            sys.exit(0)
+        print(f"发现 {len(candidates)} 个可还原文件:")
+        for c in candidates:
+            print(f"  {c['deleted_rel']}")
+            print(f"    → {c['original_rel']}  (删除于 {c['timestamp']})")
+        print()
+        if not args.yes:
+            try:
+                confirm = input("确认还原以上全部文件? [y/N] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\n操作已取消。")
+                sys.exit(0)
+            if confirm != "y":
+                print("操作已取消。")
+                sys.exit(0)
+        result = undo_all(args.src, force=args.yes)
+        print(f"\n还原完成: {result['restored']} 个, 跳过: {result['skipped']} 个, 错误: {result['errors']} 个")
+        if result["errors"] > 0:
+            sys.exit(2)
+        sys.exit(0)
+
     src_dir = os.path.abspath(args.src)
     dst_dir = os.path.abspath(args.dst)
     use_longpath = sys.platform == "win32" and not args.no_longpath
 
+    if dst_dir is None:
+        print("错误: 需要指定目标目录，或使用 --undo-soft-delete 模式。")
+        sys.exit(1)
     if not os.path.isdir(src_dir):
         print(f"错误: 源目录不存在: {src_dir}")
         sys.exit(1)
@@ -350,7 +475,13 @@ def main():
         print(f"错误: 目标目录不存在: {dst_dir}")
         sys.exit(1)
 
-    print(f"SmartCopy v1.0")
+    # -- 处理 --reverse 模式（交换 SRC ↔ DST） --
+    if args.reverse:
+        src_dir, dst_dir = dst_dir, src_dir
+        print(f"SmartCopy v1.0")
+        print(f"  模式: 反向同步 (DST → SRC)")
+    else:
+        print(f"SmartCopy v1.0")
     print(f"  源目录: {src_dir}")
     print(f"  目标目录: {dst_dir}")
     if args.force:

@@ -21,6 +21,8 @@ python scripts/smartcopy.py <SRC目录> <DST目录> [选项]
 | `--threads N` | MD5 并行线程数（0=单线程，SSD 建议 2-4） |
 | `--no-longpath` | 禁用长路径前缀 |
 | `--soft-delete` | 软删除模式：DST 独有文件重命名为 `_deleted_at_<时间戳>` 后缀 |
+| `--undo-soft-delete` | 还原模式：扫描并还原 `_deleted_at_` 后缀文件为原始文件 |
+| `--reverse` | 反向同步模式：交换 SRC 和 DST，从目标同步回源 |
 
 ## 三种 Case
 
@@ -54,6 +56,12 @@ python scripts/smartcopy.py E:\work D:\backup --yes --soft-delete --log log.csv
 
 # SSD 加速
 python scripts/smartcopy.py E:\work D:\backup --yes --threads 4
+
+# 还原软删除文件
+python scripts/smartcopy.py D:\backup --undo-soft-delete
+
+# 反向同步 (DST → SRC)
+python scripts/smartcopy.py E:\work D:\backup --reverse --yes
 ```
 
 ## 约束
