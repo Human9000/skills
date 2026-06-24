@@ -20,7 +20,9 @@ description: Use when the user wants to initialize a new project, set up project
 ├── 01-artifacts/                    # 产物存放（技术决策记录、架构文档等）
 ├── 02-sync/                         # 角色间接口对接记录
 │   ├── README.md                    #   对接记录使用说明
-│   └── {人}_{人}-{对接名}.md        #   具体接口对接文件
+│   └── {对接名}/                    #   每个对接一个目录
+│       ├── {对接名}_V0.md           #   当前工作版本（唯一，随时更新）
+│       └── {对接名}_V1_{YYMMDD}.md  #   归档快照（从 V0 复制，不可修改）
 ├── 03-meeting/                      # 会议材料
 │   └── YYMMDD.md                    #   周会记录（会前汇总，会中更新，会后留档）
 ├── 04-issues/                       # 项目问题追踪
