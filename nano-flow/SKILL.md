@@ -17,15 +17,15 @@ description: Use when the user wants to initialize a new project, set up project
 ├── nano-flow-init.md                # 初始化问卷（永久保留）
 ├── 00-proj/                         # 项目级文档
 │   └── YYMMDD.md                    #   项目状态快照（方向/里程碑/红线/团队/管理方法/Mermaid 图）
-├── 01-artifacts/                    # 产物存放
-│   └── 问题归档.md                   #   已解决问题的归档
+├── 01-artifacts/                    # 产物存放（技术决策记录、架构文档等）
 ├── 02-sync/                         # 角色间接口对接记录
 │   ├── README.md                    #   对接记录使用说明
-│   └── {角色A}↔{角色B}.md           #   具体接口对接文件
+│   └── {人}_{人}-{对接名}.md        #   具体接口对接文件
 ├── 03-meeting/                      # 会议材料
 │   └── YYMMDD.md                    #   周会记录（会前汇总，会中更新，会后留档）
-├── 04-问题/                         # 项目问题升级追踪
-│   └── 问题列表.md                   #   @人 2 天无排查策略 → 进列表，周会决议
+├── 04-issues/                       # 项目问题追踪
+│   ├── 问题列表.md                   #   @人 2 天无排查策略 → 进列表，周会决议
+│   └── 问题归档.md                   #   已解决问题的留底备查
 ├── 10-item/                         # 个人周报
 │   └── {name}/YYMMDD.md             #   每人每周一份
 └── 99-current/                      # 本项目模板（只描述结构，不填实际数据）
@@ -73,9 +73,9 @@ description: Use when the user wants to initialize a new project, set up project
 | Agent 1 | 生成 `CLAUDE.md` — 项目 AI 上下文文件，含团队、技术栈、约束、里程碑、每周节奏 | `templates/CLAUDE模板.md` |
 | Agent 2 | 生成 `99-current/` — 6 个管理模板。**关键约束：这些模板只描述各文件的字段含义、填写时机（WHEN）、填写人（WHO）、怎么用（HOW），不填入任何项目实际数据。** 模板中与项目相关的结构元素（如团队成员行数、周会时间）从 init 文件推导后填入，但所有业务内容以占位符 `{ }` 标出。例如：项目状态模板中"方向"节写"从 init 一、项目身份提取，填在此处"，而不是填入实际的项目目标文字 | `templates/项目状态.md` `templates/个人周报.md` `templates/周会材料.md` `templates/接口约定.md` `templates/问题归档.md` |
 | Agent 3 | 生成 `00-proj/YYMMDD.md` — 填入实际项目数据：方向/里程碑/红线/团队配置/四变量分析/管理方法/Mermaid 组织架构图。这是项目的"宪法"文件 | `templates/项目状态.md` `methodology.md` |
-| Agent 4 | 生成 `10-item/{name}/` 每人初始周报（本周数据）+ `03-meeting/` 本周周会模板 + `01-artifacts/问题归档.md`（空白初始化） | `templates/个人周报.md` `templates/周会材料.md` `templates/问题归档.md` |
+| Agent 4 | 生成 `10-item/{name}/` 每人初始周报（本周数据）+ `03-meeting/` 本周周会模板 | `templates/个人周报.md` `templates/周会材料.md` |
 | Agent 5 | 生成 `02-sync/`（README.md 对接记录说明） | — |
-| Agent 6 | 生成 `04-问题/`（问题列表.md 空白模板） | — |
+| Agent 6 | 生成 `04-issues/`（问题列表.md + 问题归档.md 空白模板） | `templates/问题归档.md` |
 
 > **不生成 `99-tool/`。** `99-tool/` 是 skill 安装时自带的通用参考工具箱，不属于项目初始化范围。
 
