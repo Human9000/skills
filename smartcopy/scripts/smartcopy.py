@@ -95,6 +95,7 @@ def scan_undo_candidates(directory):
     directory = os.path.abspath(directory)
     walk_root = to_long_path(directory)
     for dirpath, dirnames, filenames in os.walk(walk_root, followlinks=False):
+        # 扫描文件
         for fname in filenames:
             if not SOFT_DELETE_RE.search(fname):
                 continue
@@ -115,27 +116,66 @@ def scan_undo_candidates(directory):
                 "original_rel": original_rel,
                 "deleted_path": full_path,
                 "timestamp": ts,
+                "type": "file",
+            })
+        # 扫描目录
+        for dname in list(dirnames):
+            if not SOFT_DELETE_RE.search(dname):
+                continue
+            full_path = os.path.join(dirpath, dname)
+            try:
+                if not os.path.isdir(full_path):
+                    continue
+            except OSError:
+                continue
+            try:
+                rel = os.path.relpath(full_path, walk_root)
+            except (ValueError, OSError):
+                rel = dname
+            original_rel = SOFT_DELETE_RE.sub("", rel)
+            ts = extract_soft_delete_ts(rel) or ""
+            candidates.append({
+                "deleted_rel": rel,
+                "original_rel": original_rel,
+                "deleted_path": full_path,
+                "timestamp": ts,
+                "type": "dir",
             })
     return candidates
 
 
-def undo_all(directory, force=False):
+def undo_all(directory, force=False, subdir=None):
     """
-    还原目录中所有软删除文件。
+    还原目录中所有软删除文件和目录。
     force=True 时覆盖已存在的目标。
+    subdir 指定子目录时，仅还原该子目录下的。
+    目录优先还原（外层先行），再还原文件。
     返回 {"restored": N, "skipped": N, "errors": N}
     """
     candidates = scan_undo_candidates(directory)
+    if subdir:
+        subdir = subdir.replace("\\", "/").strip("/")
+        candidates = [c for c in candidates
+                      if c["original_rel"].replace("\\", "/").startswith(subdir + "/")
+                      or c["original_rel"].replace("\\", "/") == subdir]
+    # 目录优先、外层优先，再文件
+    dirs = sorted([c for c in candidates if c["type"] == "dir"],
+                  key=lambda x: x["original_rel"].count(os.sep))
+    files = [c for c in candidates if c["type"] == "file"]
+    ordered = dirs + files
     restored = 0
     skipped = 0
     errors = 0
-    for c in candidates:
+    for c in ordered:
         original_path = os.path.join(os.path.dirname(c["deleted_path"]),
                                      os.path.basename(c["original_rel"]))
         try:
             if os.path.exists(original_path):
                 if force:
-                    os.remove(original_path)
+                    if os.path.isdir(original_path):
+                        shutil.rmtree(original_path)
+                    else:
+                        os.remove(original_path)
                 else:
                     skipped += 1
                     continue
@@ -183,6 +223,30 @@ def walk_files(directory):
             size_map[rel_path] = size
 
     return size_map, errors
+
+
+def walk_dirs(directory):
+    """
+    递归遍历目录，返回 DST 目录的相对路径集合。
+    跳过已软删除的目录名。
+    """
+    dirs_set = set()
+    directory = os.path.abspath(directory)
+    walk_root = to_long_path(directory)
+
+    for dirpath, dirnames, filenames in os.walk(walk_root, followlinks=False):
+        for dname in dirnames:
+            if is_soft_deleted(dname):
+                continue
+            full_path = os.path.join(dirpath, dname)
+            try:
+                if os.path.islink(full_path):
+                    continue
+                rel_path = os.path.relpath(full_path, walk_root)
+                dirs_set.add(rel_path)
+            except (ValueError, OSError):
+                pass
+    return dirs_set
 
 
 def calc_md5(filepath, long_path=True):
@@ -517,6 +581,12 @@ def main():
     if already_soft_deleted_count > 0:
         print(f"      ℹ 已软删除文件 (跳过比对): {already_soft_deleted_count} 个")
 
+    # 扫描 DST 目录，计算仅 DST 有的目录
+    dst_dirs = walk_dirs(dst_dir)
+    src_dirs = walk_dirs(src_dir)
+    only_in_dst_dirs = dst_dirs - src_dirs
+    soft_delete_dir_count = 0
+
     # 分类（O(n) 集合运算，无双重循环）
     only_in_src = set(src_map.keys()) - set(dst_map.keys())   # Case 3: 仅 SRC 有 → 复制
     only_in_dst = set(dst_map.keys()) - set(src_map.keys())   # Case 1: 仅 DST 有
@@ -524,6 +594,8 @@ def main():
 
     print(f"\n  仅 SRC 有 (Case 3, 直接复制): {len(only_in_src)} 个")
     print(f"  仅 DST 有 (Case 1):            {len(only_in_dst)} 个")
+    if only_in_dst_dirs:
+        print(f"  仅 DST 有目录 (Case 1):         {len(only_in_dst_dirs)} 个")
     print(f"  双方共存 (待比对):            {len(common)} 个")
 
     # [3/3] 比对
@@ -641,6 +713,41 @@ def main():
                 "detail": f"Case 2 ({c['reason']}): 用户选择保留 DST",
             })
 
+    # Case 1: 目录优先软删除（目录涵盖其下所有文件，避免逐文件标记）
+    if args.soft_delete and only_in_dst_dirs:
+        # 仅保留顶层目录（剔除子目录：父目录已软删除则子目录自动涵盖）
+        top_dirs = []
+        for d in sorted(only_in_dst_dirs, key=lambda x: x.count(os.sep)):
+            d_norm = d.replace("\\", "/")
+            if not any(d_norm.startswith(p + "/") for p in top_dirs):
+                top_dirs.append(d_norm)
+        for d_norm in sorted(top_dirs, key=lambda x: x.count("/")):
+            rel_dir = d_norm.replace("/", os.sep)
+            dst_full = os.path.join(dst_dir, rel_dir)
+            try:
+                new_path = soft_delete_rename(dst_full)
+                if new_path:
+                    soft_delete_dir_count += 1
+                    new_rel = os.path.relpath(new_path, dst_dir)
+                    log_entries.append({
+                        "action": "soft_delete_dir",
+                        "path": rel_dir,
+                        "dst_size": 0,
+                        "detail": f"Case 1 目录: 已软删除 → {new_rel}",
+                    })
+                    # 从 only_in_dst 中移除该目录下的所有文件（目录已标记，无需逐文件标记）
+                    prefix = rel_dir + os.sep
+                    only_in_dst = {p for p in only_in_dst
+                                   if not (p == prefix or p.startswith(prefix))}
+            except (PermissionError, OSError) as e:
+                error_count += 1
+                log_entries.append({
+                    "action": "error",
+                    "path": rel_dir,
+                    "detail": f"Case 1 目录软删除失败: {e}",
+                })
+                print(f"  ✗ 目录软删除失败: {rel_dir} ({e})")
+
     # Case 1: 仅 DST 有的文件
     if args.soft_delete:
         for rel_path in sorted(only_in_dst):
@@ -688,7 +795,9 @@ def main():
     print(f"操作完成!")
     print(f"  复制/覆盖: {copy_count} 个文件")
     if args.soft_delete:
-        print(f"  软删除:   {soft_delete_count} 个文件")
+        if soft_delete_dir_count > 0:
+            print(f"  软删除目录: {soft_delete_dir_count} 个")
+        print(f"  软删除文件: {soft_delete_count} 个")
         skipped_total = skipped + already_soft_deleted_count
     else:
         skipped_total = skipped + len(only_in_dst)
