@@ -21,8 +21,8 @@ description: Use when the user wants to initialize a new project, set up project
 ├── 02-sync/                         # 角色间接口对接记录
 │   ├── README.md                    #   对接记录使用说明
 │   └── {对接名}/                    #   每个对接一个目录
-│       ├── {对接名}_V0.md           #   当前工作版本（唯一，随时更新）
-│       └── {对接名}_V1_{YYMMDD}.md  #   归档快照（从 V0 复制，不可修改）
+│       ├── V0_{YYMMDD}_{对接名}.md  #   当前工作版（同日多改加 id）
+│       └── V1_{YYMMDD}_{对接名}.md  #   归档快照（确定后复制，不可修改）
 ├── 03-meeting/                      # 会议材料
 │   └── YYMMDD.md                    #   周会记录（会前汇总，会中更新，会后留档）
 ├── 04-issues/                       # 项目问题追踪
